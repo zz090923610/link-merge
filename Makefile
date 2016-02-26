@@ -9,7 +9,6 @@ PKG_MAINTAINER:=Zhao Zhang <zhao.zhang.glacier@gmail.com>
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION).$(PGK_RELEASE)
 PKG_INSTALL_DIR:=$(PKG_BUILD_DIR)/ipkg-install
 
-
 define Package/link-merge
 	SECTION:=franz
 	CATEGORY:=Franz
