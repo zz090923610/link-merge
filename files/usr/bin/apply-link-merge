@@ -166,10 +166,17 @@ then
     uci commit first_config
     cat << EOF > /etc/config/mwan3
 config policy 'balanced'
-    option last_resort 'unreachable'
+    list use_member 'wan_m1_w3'
+    list use_member 'wan2_m1_w2'
+config rule 'https'
+    option sticky '1'
+    option dest_port '443'
+    option proto 'tcp'
+    option use_policy 'balanced'
 config rule 'default_rule'
     option dest_ip '0.0.0.0/0'
     option use_policy 'balanced'
+
 EOF
     reset_to_one
     proto=`uci get first_config.@first_config[0].proto`
