@@ -3,7 +3,7 @@ include $(INCLUDE_DIR)/kernel.mk
 include $(INCLUDE_DIR)/package.mk
 
 PKG_NAME:=link-merge
-PKG_VERSION:=2015.11
+PKG_VERSION:=1.5
 PGK_RELEASE:=1
 PKG_MAINTAINER:=Zhao Zhang <zhao.zhang.glacier@gmail.com>
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION).$(PGK_RELEASE)
