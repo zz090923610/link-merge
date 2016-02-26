@@ -1,0 +1,59 @@
+#!/bin/sh /etc/rc.common
+START=21
+STOP=90
+
+
+add_macvlan_dev()
+{
+    # $1, the $1th macvlan device
+    ip link add link eth0 veth$1 type macvlan
+    macaddr=`hexdump -s 4 -n 6 -C /dev/mtd2 | head -n 1 | sed 's/\ \ /:/g' | cut -d: -f 2 | sed 's/\ /:/g'`
+    final_mac="${macaddr:0:2}:${macaddr:3:2}:${macaddr:6:1}$1:${macaddr:9:2}:${macaddr:12:2}:${macaddr:15:2}"
+    ip link set veth$1 address ${final_mac}
+    ip link set veth$1 up
+}
+
+startup()
+{
+
+ifconfig eth0 up
+if [ `uci get first_config.@first_config[0].type` = 'one' ]
+then
+	exit
+fi
+
+
+for i in 0 1 2 3;do
+    multi_type=`uci get first_config.@first_config[0].multi_type`
+    enabled=`uci get first_config.@first_config[0].enabled$i`
+    configured=`uci get first_config.@first_config[0].configured$i`
+    if [ "$multi_type" = 'pppoe' -a $enabled -eq 1 -a $configured -eq 1 ]
+    then
+        add_macvlan_dev "$i"
+    fi
+    if [ "$multi_type" = 'dhcp' -a $enabled -eq 1 ]
+    then
+        add_macvlan_dev "$i"
+    fi
+done
+
+/etc/init.d/network reload #really need this? needs test
+}
+
+set_first_config()
+{
+    if [ ! `uci get first_config.@wifi[0].ssid` = `uci get wireless.@wifi-iface[0].ssid` ]
+    then
+    uci set first_config.@wifi[0].ssid=`uci get wireless.@wifi-iface[0].ssid`
+    uci commit first_config
+fi
+}
+
+start()
+{
+set_first_config
+startup
+}
+
+stop()
+{}

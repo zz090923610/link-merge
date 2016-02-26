@@ -1,0 +1,18 @@
+config wifi
+	option ssid 'doge'
+	option encryption 'none'
+
+
+config first_config
+	option type 'one'
+	option proto 'dhcp'
+	option multi_type 'pppoe' 
+	option configured0 '0'
+	option configured1 '0'
+	option configured2 '0'
+	option configured3 '0'
+	option enabled0 '0'
+	option enabled1 '0'
+	option enabled2 '0'
+	option enabled3 '0'
+

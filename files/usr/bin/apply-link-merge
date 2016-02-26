@@ -1,0 +1,256 @@
+#!/bin/sh -x
+
+apply()
+{
+    uci del network.wan
+    uci commit network
+
+    multi_type=`uci get first_config.@first_config[0].multi_type`
+    enabled=`uci get first_config.@first_config[0].enabled$1`
+    configured=`uci get first_config.@first_config[0].configured$1`
+    if [ "$multi_type" = 'pppoe' ]
+    then
+        account=`uci get first_config.@first_config[0].account$1`
+        passwd=`uci get first_config.@first_config[0].passwd$1`
+    fi
+
+    if [ $configured -eq 1 -a $enabled -eq 0 ]
+        then
+        ip link del veth$1
+        uci del network.vwan$1
+        uci commit network
+        uci del mwan3.vwan$1
+        uci del mwan3.vwan$1_m1_w1
+        uci del_list mwan3.balanced.use_member=vwan$1_m1_w1
+        uci commit mwan3
+        loop=0
+        zone_count=`cat /etc/config/firewall | grep zone | wc -l`
+        while [ "$loop" -lt $zone_count ]
+        do
+            if [ `uci get firewall.@zone[$loop].name` = 'wan' ]
+                then
+                uci del_list firewall.@zone[$loop].network=vwan$1
+                uci commit firewall
+                break
+            fi
+           loop=`expr $loop + 1`
+        done
+    fi
+
+    if [ $configured -eq 1 -a $enabled -eq 1 ]
+        then
+        ip link del veth$1
+        uci del network.vwan$1
+        uci del mwan3.vwan$1
+        uci del mwan3.vwan$1_m1_w1
+        uci del_list mwan3.balanced.use_member=vwan$1_m1_w1
+        ip link add link eth0 veth$1 type macvlan
+        macaddr=`hexdump -s 4 -n 6 -C /dev/mtd2 | head -n 1 | sed 's/\ \ /:/g' | cut -d: -f 2 | sed 's/\ /:/g'`
+        final_mac="${macaddr:0:2}:${macaddr:3:2}:${macaddr:6:1}$1:${macaddr:9:2}:${macaddr:12:2}:${macaddr:15:2}"
+        ip link set veth$1 address ${final_mac}
+        ip link set veth$1 up
+        uci set network.vwan$1=interface
+        uci set network.vwan$1.ifname=veth$1
+        if [ "$multi_type" = 'pppoe' ]
+        then
+            uci set network.vwan$1.proto='pppoe'
+            uci set network.vwan$1.username=$account
+           uci set network.vwan$1.password=$passwd
+        fi
+        if [ "$multi_type" = 'dhcp' ]
+        then
+            uci set network.vwan$1.proto='dhcp'
+        fi
+        uci set network.vwan$1.metric=`expr $1 + 1`
+        uci commit network
+        env -i /sbin/ifup vwan$1
+        uci set mwan3.vwan$1=interface
+        uci set mwan3.vwan$1.enabled='1'
+        uci set mwan3.vwan$1.reliability='2'
+        uci set mwan3.vwan$1.count='1'
+        uci set mwan3.vwan$1.down='10'
+        uci set mwan3.vwan$1.up='1'
+        uci set mwan3.vwan$1.timeout='10'
+        uci set mwan3.vwan$1.interval='3600'
+        uci set mwan3.vwan$1_m1_w1=member
+        uci set mwan3.vwan$1_m1_w1.interface=vwan$1
+        uci set mwan3.vwan$1_m1_w1.metric=1
+        uci set mwan3.vwan$1_m1_w1.weight=1
+        uci add_list mwan3.balanced.use_member=vwan$1_m1_w1
+        uci commit mwan3
+        loop=0
+        zone_count=`cat /etc/config/firewall | grep zone | wc -l`
+        while [ "$loop" -lt $zone_count ]
+        do
+            if [ `uci get firewall.@zone[$loop].name` = 'wan' ]
+                then
+                uci add_list firewall.@zone[$loop].network=vwan$1
+               uci commit firewall
+               break
+            fi
+            loop=`expr $loop + 1`
+        done
+    fi
+
+    if [ $configured -eq 0 ]
+    then
+        uci set first_config.@first_config.disabled[$i]=1
+        uci set first_config.@first_config.account[$1]=''
+        uci set first_config.@first_config.passwd[$1]=''
+        uci commit first_config
+        ip link del veth$1
+        uci del network.vwan$1
+        uci commit network
+        uci del mwan3.vwan$1
+        uci del_list mwan3.balanced.use_member=vwan$1_m1_w1
+        uci commit mwan3
+    fi
+}
+
+reset_to_one()
+{	
+    uci del network.wan
+	uci set network.wan=interface
+    uci set network.wan.ifname=eth0
+    uci set network.wan.proto='dhcp'
+    uci set network.wan.metric=1
+    uci set network.wan.macaddr=`hexdump -s 4 -n 6 -C /dev/mtd2 | head -n 1 | sed 's/\ \ /:/g' | cut -d: -f 2 | sed 's/\ /:/g'`
+    uci del network.vwan0
+    uci del network.vwan1
+    uci del network.vwan2
+    uci del network.vwan3
+    uci commit network
+
+}
+
+
+check_configure_status()# $1 index
+{
+    enabled=`uci get first_config.@first_config[0].enabled$1`
+    multi_type=`uci get first_config.@first_config[0].multi_type 2>/dev/null`
+
+    if [ "$multi_type" = 'pppoe' ]
+        then
+        account=`uci get first_config.@first_config[0].account$1 2>/dev/null`
+        passwd=`uci get first_config.@first_config[0].passwd$1 2>/dev/null`
+        if [ ! -z "$account" -a  ! -z "$passwd"  ]
+        then
+            echo configured
+            uci set first_config.@first_config[0].configured$1=1   
+            uci commit first_config
+        else
+            echo not configured      
+            uci set first_config.@first_config[0].configured$1=0
+            uci set first_config.@first_config[0].enabled$1=0
+            uci set first_config.@first_config[0].account$1=''
+            uci set first_config.@first_config[0].passwd$1=''
+            uci commit first_config
+        fi
+    fi
+
+    if [ "$multi_type" = 'dhcp' ]
+        then
+        uci set first_config.@first_config[0].configured$1="$enabled" 
+        uci commit first_config
+    fi
+}
+
+sleep 2
+
+if [ `uci get first_config.@first_config[0].type` = 'one' ]
+then
+	uci set first_config.@first_config[0].configured0=0
+	uci set first_config.@first_config[0].configured1=0
+	uci set first_config.@first_config[0].configured2=0
+	uci set first_config.@first_config[0].configured3=0
+    uci commit first_config
+    cat << EOF > /etc/config/mwan3
+config policy 'balanced'
+    option last_resort 'unreachable'
+config rule 'default_rule'
+    option dest_ip '0.0.0.0/0'
+    option use_policy 'balanced'
+EOF
+    reset_to_one
+    proto=`uci get first_config.@first_config[0].proto`
+    if [ "$proto" == "pppoe" ]
+        then
+        account=`uci get first_config.@first_config[0].username`
+        passwd=`uci get first_config.@first_config[0].password`
+        if [ ! -z "$account" -a  ! -z "$passwd" ]
+        then
+            uci set network.wan.proto="pppoe"
+            uci set network.wan.username="$account"
+            uci set network.wan.password="$passwd"
+            uci set network.wan.metric=1
+            uci commit network
+        fi
+    fi
+
+    if [ "$proto" == "dhcp" ]
+        then
+        reset_to_one
+    fi
+
+    if [ "$proto" == "static" ]
+        then
+        ipaddr=`uci get first_config.@first_config[0].ipaddr`
+        netmask=`uci get first_config.@first_config[0].netmask`
+        gateway=`uci get first_config.@first_config[0].gateway`
+        dns=`uci get first_config.@first_config[0].dns`
+        macaddr=`uci get first_config.@first_config[0].macaddr`
+        if [ ! -z "$ipaddr" -a  ! -z "$netmask" ]
+        then
+            uci set network.wan.proto="static"
+            uci set network.wan.ipaddr="$ipaddr"
+            uci set network.wan.netmask="$netmask"
+            uci set network.wan.macaddr="$macaddr"
+            uci set network.wan.metric=1
+            uci commit network
+        fi
+        uci set network.wan.gateway="$gateway"
+        uci set network.wan.dns="$dns"
+        uci commit network
+    fi
+    #/etc/init.d/network reload
+    env -i /sbin/ifup wan
+    loop=0
+    zone_count=`cat /etc/config/firewall | grep zone | wc -l`
+    while [ "$loop" -lt $zone_count ]
+        do
+        if [ `uci get firewall.@zone[$loop].name` = 'wan' ]
+            then
+            uci add_list firewall.@zone[$loop].network=wan
+            uci commit firewall
+            break
+        fi
+        loop=`expr $loop + 1`
+    done
+    /etc/init.d/firewall reload
+    exit
+fi
+
+#now is multi
+uci del mwan3.wan
+uci commit mwan3
+loop=0
+zone_count=`cat /etc/config/firewall | grep zone | wc -l`
+while [ "$loop" -lt $zone_count ]
+    do
+    if [ `uci get firewall.@zone[$loop].name` = 'wan' ]
+        then
+        uci del_list firewall.@zone[$loop].network=wan
+        uci commit firewall
+        break
+    fi
+    loop=`expr $loop + 1`
+done
+for i in 0 1 2 3;do
+    check_configure_status $i
+done
+for i in 0 1 2 3;do
+    apply $i
+done
+
+/etc/init.d/firewall reload
+mwan3 restart &
